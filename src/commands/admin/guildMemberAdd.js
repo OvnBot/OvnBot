@@ -3,11 +3,10 @@ const { Events } = require('discord.js');
 module.exports = {
     name: Events.GuildMemberAdd,
     async execute(member) {
-        // NOTE: Vous devez récupérer l'ID du rôle depuis votre base de données
-        // const roleId = await db.get(`autorole_${member.guild.id}`);
-        const roleId = null; // Remplacer par la valeur de la BDD
+        // Récupère l'ID du rôle depuis la base de données pour ce serveur.
+        const roleId = member.client.settings.get(member.guild.id, "autorole");
 
-        if (!roleId) return;
+        if (!roleId) return; // Si aucun rôle n'est configuré, on ne fait rien.
 
         const role = member.guild.roles.cache.get(roleId);
         if (role) {

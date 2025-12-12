@@ -1,6 +1,6 @@
 // Importer les modules nécessaires
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
-const Enmap = require('enmap');
+const { Enmap } = require('enmap');
 const fs = require('node:fs');
 const path = require('node:path');
 require('dotenv').config(); // Charger les variables d'environnement
