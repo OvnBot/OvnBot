@@ -60,6 +60,15 @@ const nms = new NodeMediaServer(nmsConfig);
 // Stockage des streams actifs
 const activeStreams = {};
 
+// Stockage de la diffusion en cours du bot (supporte une seule diffusion à la fois)
+const currentBroadcast = {
+    connection: null,
+    player: null,
+    ffmpegProcess: null,
+    guildId: null,
+    streamName: null,
+};
+
 nms.on('prePublish', (id, StreamPath, args) => {
     console.log(`[RTMP] Tentative de publication sur ${StreamPath}`);
     const streamName = StreamPath.split('/').pop();
@@ -109,6 +118,14 @@ app.post('/api/start-stream', async (req, res) => {
         return res.status(404).json({ message: "Ce stream n'est pas actif." });
     }
 
+    // Si une diffusion est déjà en cours, on l'arrête avant d'en lancer une nouvelle.
+    if (currentBroadcast.connection) {
+        console.log(`[Bot] Arrêt de la diffusion précédente sur le serveur ${currentBroadcast.guildId}`);
+        currentBroadcast.connection.destroy();
+        // Réinitialiser l'état
+        Object.assign(currentBroadcast, { connection: null, player: null, ffmpegProcess: null, guildId: null, streamName: null });
+    }
+
     try {
         const channel = await client.channels.fetch(channelId);
         if (!channel || !channel.isVoiceBased()) {
@@ -142,17 +159,24 @@ app.post('/api/start-stream', async (req, res) => {
         audioPlayer.play(audioResource);
         connection.subscribe(audioPlayer);
 
+        // Sauvegarder l'état de la diffusion en cours
+        Object.assign(currentBroadcast, { connection, player: audioPlayer, ffmpegProcess, guildId, streamName });
+
         // Gérer la déconnexion propre
         connection.on(VoiceConnectionStatus.Disconnected, () => {
             console.log(`[Bot] Déconnecté du salon, nettoyage...`);
-            ffmpegProcess.kill();
-            connection.destroy();
+            if (currentBroadcast.ffmpegProcess) {
+                currentBroadcast.ffmpegProcess.kill();
+            }
+            // Réinitialiser l'état
+            Object.assign(currentBroadcast, { connection: null, player: null, ffmpegProcess: null, guildId: null, streamName: null });
         });
+
         audioPlayer.on('stateChange', (oldState, newState) => {
             if (newState.status === 'idle') {
                 console.log(`[Bot] Le stream audio est terminé, déconnexion.`);
-                if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
-                    connection.destroy();
+                if (currentBroadcast.connection && currentBroadcast.connection.state.status !== VoiceConnectionStatus.Destroyed) {
+                    currentBroadcast.connection.destroy();
                 }
             }
         });
@@ -162,6 +186,34 @@ app.post('/api/start-stream', async (req, res) => {
     } catch (error) {
         console.error("[Bot] Erreur lors du démarrage du stream:", error);
         res.status(500).json({ message: "Une erreur est survenue lors de la connexion au salon vocal." });
+    }
+});
+
+app.post('/api/stop-stream', (req, res) => {
+    const { streamName } = req.body;
+
+    if (!activeStreams[streamName]) {
+        return res.status(404).json({ message: "Ce stream n'est pas actif." });
+    }
+
+    // 1. Arrêter la diffusion du bot si c'est le stream concerné
+    if (currentBroadcast.streamName === streamName && currentBroadcast.connection) {
+        console.log(`[API] Arrêt de la diffusion du bot pour le stream ${streamName}.`);
+        currentBroadcast.connection.destroy();
+    }
+
+    // 2. Tuer la session RTMP pour forcer la déconnexion du streamer (OBS)
+    try {
+        const streamId = activeStreams[streamName].id;
+        const session = nms.getSession(streamId);
+        if (session) {
+            console.log(`[API] Arrêt forcé de la session RTMP pour le stream ${streamName} (ID: ${streamId}).`);
+            session.reject(); // ou session.kill()
+        }
+        res.json({ message: `Le stream "${streamName}" a été arrêté.` });
+    } catch (error) {
+        console.error(`[API] Erreur lors de l'arrêt du stream ${streamName}:`, error);
+        res.status(500).json({ message: "Erreur lors de l'arrêt du stream." });
     }
 });
 
