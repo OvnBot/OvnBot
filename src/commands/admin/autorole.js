@@ -12,10 +12,10 @@ module.exports = {
     async execute(interaction) {
         const role = interaction.options.getRole('role');
 
-        // NOTE: Vous devez sauvegarder `role.id` dans une base de données
-        // associée à `interaction.guild.id`.
-        // Exemple: db.set(`autorole_${interaction.guild.id}`, role.id);
+        // Sauvegarde l'ID du rôle dans la base de données, associé à l'ID du serveur.
+        // La clé est l'ID du serveur, la valeur est un objet de paramètres.
+        interaction.client.settings.set(interaction.guild.id, role.id, "autorole");
 
-        await interaction.reply({ content: `Le rôle ${role.name} sera maintenant donné aux nouveaux membres (configuration à sauvegarder).`, ephemeral: true });
+        await interaction.reply({ content: `Le rôle ${role.name} sera maintenant donné automatiquement aux nouveaux membres.`, ephemeral: true });
     },
 };
