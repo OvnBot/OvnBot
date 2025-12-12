@@ -1,0 +1,27 @@
+{
+  "name": "ovnbot",
+  "version": "1.0.0",
+  "description": "Un bot Discord multi-fonctions.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node .",
+    "deploy": "node src/deploy-commands.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@discordjs/voice": "^0.16.1",
+    "discord.js": "^14.25.1",
+    "dotenv": "^16.6.1",
+    "play-dl": "^1.9.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OvnBot/OvnBot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OvnBot/OvnBot/issues"
+  },
+  "homepage": "https://github.com/OvnBot/OvnBot#readme"
+}
