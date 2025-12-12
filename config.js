@@ -9,6 +9,9 @@ module.exports = {
     // Configuration Discord
     discord: {
         token: process.env.DISCORD_TOKEN,
+        guildId: process.env.DEFAULT_GUILD_ID, // ID du serveur où le bot doit se connecter
+        channelId: process.env.DEFAULT_CHANNEL_ID, // ID du salon vocal par défaut
+        announcementChannelId: process.env.ANNOUNCEMENT_CHANNEL_ID, // ID du salon pour les annonces de stream
     },
     // Configuration du serveur web/dashboard
     dashboard: {

@@ -32,31 +32,68 @@
         .info-box { font-family: monospace; background: var(--background); padding: 10px; border-radius: 3px; word-break: break-all; margin-top: 5px; margin-bottom: 15px; cursor: pointer; border: 1px solid var(--border); }
         .info-box:hover { background: #3f3f46; }
         label { font-weight: bold; color: var(--text-secondary); }
-        .stream-player-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 20px; overflow: hidden; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+        header h1 { margin: 0; }
+        .header-nav a { background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); padding: 10px 15px; text-decoration: none; border-radius: 5px; transition: all 0.2s; margin-left: 10px; }
+        .header-nav a:hover { background: var(--border); color: var(--primary); }
+        .stream-player-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 20px; overflow: hidden; display: flex; flex-direction: column; }
         .player-wrapper { position: relative; background: #000; width: 100%; padding-top: 56.25%; /* 16:9 Aspect Ratio */ }
-        .player-wrapper video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .player-wrapper video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; }
         .offline-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; font-size: 1.5em; font-weight: bold; color: var(--text-secondary); }
-        .stream-controls { padding: 15px; background: var(--surface); }
+        .stream-controls { padding: 15px; background: var(--surface); border-top: 1px solid var(--border); }
+        .broadcast-controls { text-align: center; margin-bottom: 20px; }
+        .stream-checkbox { margin-right: 10px; transform: scale(1.5); }
+        #keys-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        #keys-table th, #keys-table td { border: 1px solid var(--border); padding: 8px; text-align: left; }
+        .hide-button { background: #ffc107; color: #000; }
+        .hide-button:hover { background: #e0a800; }
+        #keys-table th { background-color: var(--background); }
+        .status-active { color: #28a745; font-weight: bold; }
+        .status-suspended { color: #dc3545; font-weight: bold; }
+
+        /* Masquer les contrôles vidéo non désirés sur le dashboard aussi */
+        video::-webkit-media-controls-play-button,
+        video::-webkit-media-controls-timeline,
+        video::-webkit-media-controls-current-time-display,
+        video::-webkit-media-controls-time-remaining-display {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Dashboard de Contrôle du Bot Stream</h1>
+        <header>
+            <h1>Dashboard Admin</h1>
+            <nav class="header-nav">
+                <a href="viewer.html">Voir le site public</a>
+                <a href="#" onclick="logout()">Se Déconnecter</a>
+            </nav>
+        </header>
 
         <div id="key-section" class="card">
-            <h2>Générateur de Clé de Stream</h2>
+            <h2>Créer une nouvelle clé</h2>
             <input type="text" id="stream-name-input" placeholder="Nom du stream (ex: mon_live)">
-            <button onclick="generateKey()">Générer la clé</button>
-            <div id="obs-info" style="display: none; margin-top: 15px;">
-                <p><strong>À copier dans les paramètres de stream d'OBS :</strong></p>
-                <label for="obs-server">Serveur :</label>
-                <div id="obs-server" class="info-box" title="Cliquez pour copier"></div>
-                <label for="obs-key">Clé de stream :</label>
-                <div id="obs-key" class="info-box" title="Cliquez pour copier"></div>
-            </div>
+            <button onclick="createKey()">Créer la clé</button>
+        </div>
+
+        <div class="card">
+            <h2>Gestion des Clés</h2>
+            <table id="keys-table">
+                <thead>
+                    <tr>
+                        <th>Nom du Stream</th><th>Clé de Stream</th><th>Statut</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="keys-tbody"></tbody>
+            </table>
         </div>
 
         <h2>Streams Actifs</h2>
+        <div class="broadcast-controls card">
+            <h3>Contrôle de la Diffusion</h3>
+            <button onclick="startBroadcastingSelected()">▶ Diffuser la sélection</button>
+            <button class="stop-button" onclick="stopBroadcasting()">■ Arrêter la diffusion</button>
+        </div>
         <div id="active-streams">
             <p>Aucun stream actif pour le moment...</p>
         </div>
@@ -66,80 +103,138 @@
         // Objet pour garder en mémoire les lecteurs vidéo actifs
         let activePlayers = {};
 
-        // Fonction pour générer la clé de stream via l'API
-        async function generateKey() {
+        function logout() {
+            // Astuce pour forcer la déconnexion avec basic-auth
+            const xhr = new XMLHttpRequest();
+            xhr.open("GET", "/admin", true, "logout", "logout");
+            xhr.send();
+            xhr.onreadystatechange = () => { if (xhr.readyState == 4) { location.reload(); } }
+        }
+
+        // Fonction pour créer une nouvelle clé
+        async function createKey() {
             const streamName = document.getElementById('stream-name-input').value;
             if (!streamName) {
                 alert('Veuillez entrer un nom de stream.');
                 return;
             }
             try {
-                const response = await fetch(`/api/generate-key/${streamName}`);
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    alert(`Erreur: ${errorData.error || 'Impossible de générer la clé.'}`);
-                    return;
-                }
-                const data = await response.json();
-
-                // Affiche les deux champs pour OBS
-                const serverUrl = `rtmp://${window.location.hostname}:1935/live`;
-                const obsServerDiv = document.getElementById('obs-server');
-                const obsKeyDiv = document.getElementById('obs-key');
-
-                obsServerDiv.innerText = serverUrl;
-                obsKeyDiv.innerText = data.streamKey;
-
-                // Rend la section visible
-                document.getElementById('obs-info').style.display = 'block';
-
+                const response = await fetch('/api/keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ streamName }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Erreur serveur');
+                fetchKeys(); // Rafraîchir la liste des clés
+                document.getElementById('stream-name-input').value = '';
             } catch (error) {
                 console.error('Erreur lors de la génération de la clé:', error);
                 alert('Erreur lors de la génération de la clé. Vérifiez la console.');
             }
         }
 
-        // Fonction pour demander au bot de diffuser un stream
-        async function startStreaming(streamName) {
-            const guildId = prompt("Entrez l'ID du serveur (guilde) Discord :");
-            const channelId = prompt("Entrez l'ID du salon vocal :");
-            if (!guildId || !channelId) return;
+        // Fonction pour demander au bot de diffuser les streams sélectionnés
+        async function startBroadcastingSelected() {
+            const selectedStreams = Array.from(document.querySelectorAll('.stream-checkbox:checked')).map(cb => cb.value);
+            if (selectedStreams.length === 0) {
+                alert("Veuillez sélectionner au moins un stream à diffuser.");
+                return;
+            }
 
             try {
-                const response = await fetch('/api/start-stream', {
+                const response = await fetch('/api/broadcast-streams', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ streamName, guildId, channelId }),
+                    body: JSON.stringify({ streamNames: selectedStreams }),
                 });
                 const result = await response.json();
                 alert(result.message);
             } catch (error) {
                 console.error('Erreur lors du démarrage de la diffusion:', error);
-                alert('Erreur lors du démarrage de la diffusion. Vérifiez la console.');
+                alert('Erreur lors du démarrage de la diffusion.');
             }
         }
 
-        // Fonction pour arrêter un stream
-        async function stopStreaming(streamName) {
-            if (!confirm(`Voulez-vous vraiment arrêter le stream "${streamName}" ?\nCela déconnectera le streamer et le bot.`)) {
-                return;
-            }
+        // Fonction pour arrêter la diffusion du bot
+        async function stopBroadcasting() {
+             if (!confirm(`Voulez-vous vraiment arrêter la diffusion du bot ?`)) return;
+             const response = await fetch('/api/stop-broadcast', { method: 'POST' });
+             const result = await response.json();
+             alert(result.message);
+        }
+
+        // Fonction pour masquer/démasquer un stream
+        async function toggleStreamVisibility(streamName, shouldHide, event) {
+            const button = event.target;
             try {
-                const response = await fetch('/api/stop-stream', {
-                    method: 'POST',
+                await fetch(`/api/streams/${streamName}/hide`, {
+                    method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ streamName }),
+                    body: JSON.stringify({ hidden: shouldHide }),
                 });
-                const result = await response.json();
-                alert(result.message);
-                fetchActiveStreams(); // Rafraîchir la liste
+                // Mettre à jour l'interface immédiatement sans attendre le prochain fetch
+                button.innerText = shouldHide ? 'Démasquer' : 'Masquer';
+                button.onclick = (event) => toggleStreamVisibility(streamName, !shouldHide, event);
             } catch (error) {
-                console.error('Erreur lors de l\'arrêt du stream:', error);
-                alert('Erreur lors de l\'arrêt du stream.');
+                console.error('Erreur lors du masquage du stream:', error);
+                alert('Erreur lors du masquage du stream.');
             }
         }
 
-        // Met à jour la liste et l'état des streams de manière intelligente
+        // --- Fonctions de gestion des clés ---
+        async function fetchKeys() {
+            const response = await fetch('/api/keys');
+            const keys = await response.json();
+            const tbody = document.getElementById('keys-tbody');
+            tbody.innerHTML = '';
+            const serverUrl = `rtmp://82.65.62.132:1935/live`; // Utilise l'IP publique
+
+            keys.forEach(key => {
+                const row = tbody.insertRow();
+                const toggleStatusText = key.status === 'active' ? 'Suspendre' : 'Activer';
+                const newStatus = key.status === 'active' ? 'suspended' : 'active';
+
+                row.innerHTML = `
+                    <td>${key.name}</td>
+                    <td>
+                        <div class="info-box" title="Cliquez pour copier la clé">${key.key}</div>
+                        <small>Serveur: <span class="info-box" title="Cliquez pour copier le serveur">${serverUrl}</span></small>
+                    </td>
+                    <td><span class="status-${key.status}">${key.status}</span></td>
+                    <td>
+                        <button onclick="toggleKeyStatus('${key.name}', '${newStatus}')">${toggleStatusText}</button>
+                        <button class="stop-button" onclick="deleteKey('${key.name}')">Supprimer</button>
+                    </td>
+                `;
+            });
+        }
+
+        async function deleteKey(streamName) {
+            if (!confirm(`Voulez-vous vraiment supprimer définitivement la clé pour "${streamName}" ?`)) return;
+            try {
+                await fetch(`/api/keys/${streamName}`, { method: 'DELETE' });
+                fetchKeys();
+            } catch (error) {
+                alert('Erreur lors de la suppression.');
+            }
+        }
+
+        async function toggleKeyStatus(streamName, newStatus) {
+            try {
+                await fetch(`/api/keys/${streamName}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus }),
+                });
+                fetchKeys();
+            } catch (error) {
+                alert('Erreur lors du changement de statut.');
+            }
+        }
+
+
+        // Met à jour la liste et l'état des streams
         async function fetchActiveStreams() {
             try {
                 const response = await fetch('/api/active-streams');
@@ -159,10 +254,7 @@
                         delete activePlayers[streamName];
                         const card = document.getElementById(`stream-card-${streamName}`);
                         if (card) {
-                            const overlay = card.querySelector('.offline-overlay');
-                            if(overlay) overlay.style.display = 'flex'; // Affiche "HORS LIGNE"
-                            // Optionnel: supprimer la carte après un délai
-                            setTimeout(() => card.remove(), 30000);
+                            card.remove();
                         }
                     }
                 }
@@ -174,51 +266,47 @@
                         if (container.querySelector('p')) {
                             container.innerHTML = ''; // Nettoyer le message "Aucun stream"
                         }
-                        createStreamCard(streamName, container);
+
+                        // Créer la carte du lecteur
+                        const card = document.createElement('div');
+                        card.className = 'stream-player-card';
+                        card.id = `stream-card-${streamName}`;
+                        card.innerHTML = `
+                            <div class="player-wrapper">
+                                <video id="video-${streamName}" autoplay controls muted></video>
+                                <div class="offline-overlay" style="display: none;">HORS LIGNE</div>
+                            </div>
+                            <div class="stream-controls">
+                                <h3><input type="checkbox" class="stream-checkbox" value="${streamName}" id="cb-${streamName}"> <label for="cb-${streamName}">${streamName}</label></h3>
+                                <button class="hide-button" onclick="toggleStreamVisibility('${streamName}', ${!liveStreams[streamName].hidden}, event)">
+                                    ${liveStreams[streamName].hidden ? 'Démasquer' : 'Masquer'}
+                                </button>
+                            </div>
+                        `;
+                        container.appendChild(card);
+
+                        // Initialiser le lecteur flv.js
+                        if (flvjs.isSupported()) {
+                            const videoElement = document.getElementById(`video-${streamName}`);
+                            const flvPlayer = flvjs.createPlayer({
+                                type: 'flv',
+                                isLive: true,
+                                url: `http://${window.location.hostname}:8000/live/${streamName}.flv`
+                            });
+                            flvPlayer.attachMediaElement(videoElement);
+                            flvPlayer.load();
+                            flvPlayer.play();
+                            activePlayers[streamName] = flvPlayer;
+                        }
                     }
                 }
 
-                // 3. Si plus aucun stream n'est actif
-                if (liveStreamNames.length === 0 && container.children.length > 0) {
-                    // Si on a décidé de ne pas supprimer les cartes, on ne fait rien ici
-                    // Sinon, on nettoie tout
-                } else if (liveStreamNames.length === 0 && container.children.length === 0) {
+                // 3. Si plus aucun stream n'est actif et qu'il n'y a pas de cartes
+                if (liveStreamNames.length === 0 && container.children.length === 0) {
                     container.innerHTML = '<p>Aucun stream actif pour le moment...</p>';
                 }
-
             } catch (error) {
                 console.error('Erreur lors de la récupération des streams actifs:', error);
-            }
-        }
-
-        function createStreamCard(streamName, container) {
-            const card = document.createElement('div');
-            card.className = 'stream-player-card';
-            card.id = `stream-card-${streamName}`;
-            card.innerHTML = `
-                <div class="player-wrapper">
-                    <video id="video-${streamName}" muted autoplay></video>
-                    <div class="offline-overlay" style="display: none;">HORS LIGNE</div>
-                </div>
-                <div class="stream-controls">
-                    <h3>${streamName}</h3>
-                    <button onclick="startStreaming('${streamName}')">▶ Diffuser</button>
-                    <button class="stop-button" onclick="stopStreaming('${streamName}')">■ Arrêter</button>
-                </div>
-            `;
-            container.appendChild(card);
-
-            if (flvjs.isSupported()) {
-                const videoElement = document.getElementById(`video-${streamName}`);
-                const flvPlayer = flvjs.createPlayer({
-                    type: 'flv',
-                    isLive: true,
-                    url: `http://${window.location.hostname}:8000/live/${streamName}.flv`
-                });
-                flvPlayer.attachMediaElement(videoElement);
-                flvPlayer.load();
-                flvPlayer.play();
-                activePlayers[streamName] = flvPlayer;
             }
         }
 
@@ -226,6 +314,7 @@
         setInterval(fetchActiveStreams, 5000);
         // Premier chargement immédiat
         fetchActiveStreams();
+        fetchKeys();
 
         // Ajoute la fonctionnalité de copie au clic
         document.addEventListener('click', function (event) {
