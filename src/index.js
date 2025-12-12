@@ -1,5 +1,6 @@
 // Importer les modules nécessaires
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const Enmap = require('enmap');
 const fs = require('node:fs');
 const path = require('node:path');
 require('dotenv').config(); // Charger les variables d'environnement
@@ -13,6 +14,12 @@ const client = new Client({
         GatewayIntentBits.MessageContent, // Nécessaire pour certaines logs
         GatewayIntentBits.GuildVoiceStates, // Nécessaire pour la musique
     ]
+});
+
+// Initialiser la base de données pour les paramètres de chaque serveur
+client.settings = new Enmap({
+    name: "settings",
+    autoFetch: true,
 });
 
 // Gérer les commandes
