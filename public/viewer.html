@@ -21,18 +21,63 @@
         header h1 { font-size: 2.5em; color: var(--primary); text-shadow: 0 0 10px var(--primary-glow); margin: 0; }
         .admin-button { background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); padding: 10px 15px; text-decoration: none; border-radius: 5px; transition: all 0.2s; }
         .admin-button:hover { background: var(--border); color: var(--primary); }
-        #stream-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; max-width: 1600px; margin: auto; }
+        #stream-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; max-width: 1600px; margin: auto; }
         .stream-player-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; transition: all 0.3s ease; }
         .stream-player-card:hover { transform: scale(1.02); box-shadow: 0 0 15px var(--primary-glow); }
         .player-wrapper { position: relative; background: #000; width: 100%; padding-top: 56.25%; }
-        .player-wrapper video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; }
+        .player-wrapper video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; object-fit: contain; }
         .stream-title { padding: 15px; font-size: 1.2em; font-weight: bold; }
-        .hidden-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; font-size: 1.5em; font-weight: bold; color: var(--text-secondary); z-index: 10; }
+        
+        /* Nouvel overlay de statut (pour masqué et hors ligne) */
+        .status-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8em;
+            font-weight: bold;
+            z-index: 10;
+            text-align: center;
+            background: radial-gradient(circle, rgba(22,27,34,0.8) 0%, rgba(13,17,23,0.95) 100%);
+        }
+        .status-overlay .icon { font-size: 3em; line-height: 1; margin-bottom: 15px; }
+        .status-overlay.hidden .icon { animation: pulse 2s infinite; color: #ffc107; }
+        .status-overlay.offline .icon { color: var(--text-secondary); }
+        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.95); } }
+
+        /* Bouton Play pour mobile */
+        .play-button-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 4em; color: white;
+            cursor: pointer; z-index: 11;
+            transition: opacity 0.3s;
+        }
+        .play-button-overlay:hover { opacity: 0.8; }
+        .play-button-overlay.hidden { display: none; }
+
+
         .no-streams { text-align: center; font-size: 1.5em; color: var(--text-secondary); }
         /* Styles pour la vue focus */
-        .focused-view #stream-grid { display: block; }
+        .focused-view { display: flex; flex-direction: column; height: 100vh; padding: 0; }
+        .focused-view header { padding: 20px; margin-bottom: 0; }
+        .focused-view #stream-grid {
+            display: flex;
+            flex-grow: 1;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            min-height: 0; /* Important pour le flexbox dans certains navigateurs */
+        }
+        .focused-view .stream-player-card {
+            width: 100%;
+            height: 100%;
+        }
         .focused-view .stream-player-card { cursor: default; }
-        .focused-view .stream-player-card:hover { transform: none; box-shadow: none; }
+        .focused-view .stream-player-card:hover { transform: none; box-shadow: none; }        
 
         /* Masquer les contrôles vidéo non désirés */
         video::-webkit-media-controls-play-button,
@@ -41,6 +86,13 @@
         video::-webkit-media-controls-time-remaining-display,
         video::-webkit-media-controls-fullscreen-button {
             display: none !important;
+        }
+
+        /* Styles pour la version mobile */
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            #stream-grid { grid-template-columns: 1fr; gap: 15px; }
+            header h1 { font-size: 1.8em; }
         }
     </style>
 </head>
@@ -61,8 +113,8 @@
 
         async function fetchAndDisplayStreams() {
             try {
-                const response = await fetch('/api/public/streams');
-                const liveStreams = await response.json();
+                const response = await fetch('/api/public/streams'); // Cet endpoint ne retournera désormais que les streams diffusés
+                liveStreams = await response.json(); // Assigner à la variable globale liveStreams
                 const liveStreamNames = Object.keys(liveStreams);
                 const grid = document.getElementById('stream-grid');
                 const currentlyDisplayed = new Set(Object.keys(activePlayers));
@@ -72,12 +124,26 @@
                 for (const streamName of currentlyDisplayed) {
                     if (liveStreams[streamName]) {
                         const card = document.getElementById(`stream-card-${streamName}`);
-                        const overlay = card.querySelector('.hidden-overlay');
+                        if (!card) continue; // Sécurité si la carte a été supprimée
+                        const overlay = card.querySelector('.status-overlay');
+                        const playerWrapper = card.querySelector('.player-wrapper');
                         if (liveStreams[streamName].hidden && !overlay) {
-                            const playerWrapper = card.querySelector('.player-wrapper');
-                            playerWrapper.insertAdjacentHTML('afterbegin', '<div class="hidden-overlay">Stream masqué temporairement</div>');
-                        } else if (!liveStreams[streamName].hidden && overlay) {
-                            overlay.remove();
+                            // Arrête le lecteur et affiche l'overlay "masqué"
+                            activePlayers[streamName]?.destroy();
+                            delete activePlayers[streamName];
+                            playerWrapper.innerHTML = `<div class="status-overlay hidden"><div class="icon">👁️</div><div>STREAM MASQUÉ</div></div>`;
+                            card.onclick = () => focusOnStream(streamName, liveStreams); // Mettre à jour le clic
+                        } else if (!liveStreams[streamName].hidden && overlay && overlay.classList.contains('hidden')) {
+                            // L'overlay "masqué" existe mais ne devrait plus. On le remplace par le lecteur vidéo.
+                            console.log(`[Viewer] Démasquage du stream ${streamName}.`);
+                            playerWrapper.innerHTML = `<video id="video-${streamName}" autoplay controls muted></video>`;
+                            
+                            // On relance le lecteur vidéo pour ce stream
+                            const videoElement = document.getElementById(`video-${streamName}`);
+                            if (videoElement) {
+                                initializePlayer(streamName, videoElement);
+                            }
+                            card.onclick = () => focusOnStream(streamName, liveStreams);
                         }
                     }
                 }
@@ -88,13 +154,19 @@
                         console.log(`Stream ${streamName} est hors ligne. Nettoyage.`);
                         activePlayers[streamName]?.destroy();
                         delete activePlayers[streamName];
-                        document.getElementById(`stream-card-${streamName}`)?.remove();
+                        const card = document.getElementById(`stream-card-${streamName}`);
+                        if (card) {
+                            const playerWrapper = card.querySelector('.player-wrapper');
+                            playerWrapper.innerHTML = `<div class="status-overlay offline"><div class="icon">⚫</div><div>HORS LIGNE</div></div>`;
+                            card.onclick = null; // Désactive le clic sur la carte
+                            card.style.cursor = 'default';
+                        }
                     }
                 }
 
                 // Gérer les nouveaux streams
                 for (const streamName of liveStreamNames) {
-                    if (!currentlyDisplayed.has(streamName) && !isFocused) {
+                    if (!currentlyDisplayed.has(streamName)) {
                         console.log(`Nouveau stream détecté: ${streamName}.`);
                         if (grid.querySelector('p')) {
                             grid.innerHTML = '';
@@ -110,7 +182,7 @@
                 // Si un stream est spécifié dans l'URL, on le fait défiler
                 const urlParams = new URLSearchParams(window.location.search);
                 const focusedStreamName = urlParams.get('stream');
-                if (focusedStreamName && liveStreamNames.includes(focusedStreamName)) {
+                if (focusedStreamName && liveStreamNames.includes(focusedStreamName) && !isFocused) {
                     focusOnStream(focusedStreamName, liveStreams);
                 }
 
@@ -127,7 +199,8 @@
             card.onclick = () => focusOnStream(streamName, allStreams);
             card.innerHTML = `
                 <div class="player-wrapper">
-                    ${isHidden ? '<div class="hidden-overlay">Stream masqué temporairement</div>' : ''}
+                    ${isHidden ? '<div class="status-overlay hidden"><div class="icon">👁️</div><div>STREAM MASQUÉ</div></div>' : ''}
+                    <div class="play-button-overlay" id="play-btn-${streamName}">▶</div>
                     <video id="video-${streamName}" autoplay controls muted></video>
                 </div>
                 <div class="stream-title">${streamName}</div>
@@ -136,34 +209,52 @@
 
             if (flvjs.isSupported() && !isHidden) {
                 const videoElement = document.getElementById(`video-${streamName}`);
-                // Si le stream est masqué, on ne charge pas le lecteur.
-                if (!videoElement) {
-                    console.warn(`Élément vidéo pour ${streamName} non trouvé.`);
-                    return;
-                }
-                // Logique pour l'audio unique
-                videoElement.onplay = () => {
-                    document.querySelectorAll('video').forEach(v => {
-                        if (v !== videoElement) v.muted = true;
-                    });
+                const playButton = document.getElementById(`play-btn-${streamName}`);
+                
+                // On associe le clic sur le bouton Play à l'initialisation du lecteur
+                playButton.onclick = (e) => {
+                    e.stopPropagation(); // Empêche le clic de déclencher le mode focus
+                    initializePlayer(streamName, videoElement, playButton);
                 };
-                const flvPlayer = flvjs.createPlayer({
-                    type: 'flv',
-                    isLive: true,
-                    url: `http://${window.location.hostname}:8000/live/${streamName}.flv`
-                });
-                flvPlayer.attachMediaElement(videoElement);
-                flvPlayer.load();
-                flvPlayer.play();
-                activePlayers[streamName] = flvPlayer;
             }
+        }
+
+        function initializePlayer(streamName, videoElement, playButton) {
+            if (!videoElement) {
+                console.warn(`Élément vidéo pour ${streamName} non trouvé.`);
+                return;
+            }
+            // Masquer le bouton play une fois cliqué
+            if (playButton) playButton.classList.add('hidden');
+
+            videoElement.onplay = () => {
+                document.querySelectorAll('video').forEach(v => {
+                    if (v !== videoElement) v.muted = true;
+                });
+            };
+
+            const flvPlayer = flvjs.createPlayer({
+                type: 'flv', isLive: true,
+                url: `http://${window.location.hostname}:8000/live/${streamName}.flv`
+            });
+            flvPlayer.attachMediaElement(videoElement);
+            flvPlayer.load();
+            videoElement.play().catch(e => console.error("La lecture a échoué:", e)); // Essaye de jouer, en ignorant les erreurs d'autoplay
+            activePlayers[streamName] = flvPlayer;
         }
 
         function focusOnStream(streamName, allStreams) {
             document.body.classList.add('focused-view');
-            const grid = document.getElementById('stream-grid');
-            grid.innerHTML = ''; // Vide la grille
-            createStreamCard(streamName, grid, allStreams);
+            // Si le stream sur lequel on clique est masqué, on ne fait rien de plus que d'afficher la carte masquée.
+            if (allStreams[streamName] && allStreams[streamName].hidden) {
+                const grid = document.getElementById('stream-grid');
+                grid.innerHTML = ''; // Vide la grille
+                createStreamCard(streamName, grid, allStreams);
+            } else {
+                const grid = document.getElementById('stream-grid');
+                grid.innerHTML = ''; // Vide la grille
+                createStreamCard(streamName, grid, allStreams);
+            }
 
             // Change le titre et ajoute un bouton de retour
             const header = document.querySelector('header');
@@ -180,7 +271,12 @@
                 <h1>Streams en Direct</h1>
                 <a href="/admin" class="admin-button">Espace Admin</a>
             `;
-            fetchAndDisplayStreams(); // Relance un rafraîchissement complet de la grille
+            // Vide la grille et relance un rafraîchissement pour reconstruire
+            const grid = document.getElementById('stream-grid');
+            grid.innerHTML = '';
+            Object.keys(activePlayers).forEach(k => activePlayers[k].destroy());
+            activePlayers = {};
+            fetchAndDisplayStreams();
         }
 
         // Lancement

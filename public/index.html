@@ -65,7 +65,7 @@
         <header>
             <h1>Dashboard Admin</h1>
             <nav class="header-nav">
-                <a href="viewer.html">Voir le site public</a>
+                <a href="/">Voir le site public</a>
                 <a href="#" onclick="logout()">Se Déconnecter</a>
             </nav>
         </header>
@@ -298,10 +298,18 @@
                             flvPlayer.play();
                             activePlayers[streamName] = flvPlayer;
                         }
+                    } else {
+                        // 3. Mettre à jour les streams existants (pour le statut 'hidden')
+                        const streamData = liveStreams[streamName];
+                        const hideButton = document.querySelector(`#stream-card-${streamName} .hide-button`);
+                        if (hideButton) {
+                            hideButton.innerText = streamData.hidden ? 'Démasquer' : 'Masquer';
+                            // On met à jour la fonction onclick pour qu'elle ait la bonne valeur de 'hidden'
+                            hideButton.onclick = (event) => toggleStreamVisibility(streamName, !streamData.hidden, event);
+                        }
                     }
                 }
-
-                // 3. Si plus aucun stream n'est actif et qu'il n'y a pas de cartes
+                // 4. Si plus aucun stream n'est actif et qu'il n'y a pas de cartes
                 if (liveStreamNames.length === 0 && container.children.length === 0) {
                     container.innerHTML = '<p>Aucun stream actif pour le moment...</p>';
                 }

@@ -163,7 +163,7 @@ async function start() {
                     .setDescription('Cliquez sur le bouton ci-dessous pour regarder le stream.')
                     .setTimestamp();
                 const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setLabel('Regarder le Stream').setStyle(ButtonStyle.Link).setURL(`http://82.65.62.132:${config.dashboard.port}/viewer.html?stream=${streamName}`)
+                    new ButtonBuilder().setLabel('Regarder le Stream').setStyle(ButtonStyle.Link).setURL(`http://82.65.62.132:${config.dashboard.port}?stream=${streamName}`)
                 );
                 announcementMessage = await channel.send({ embeds: [embed], components: [row] });
             } catch (e) {
@@ -199,6 +199,13 @@ async function start() {
             }
 
             delete activeStreams[streamName];
+
+            // Si le stream qui s'est arrêté faisait partie de la diffusion, on la met à jour.
+            if (currentBroadcast.streamNames.includes(streamName)) {
+                console.log(`[Bot] Le stream ${streamName} s'est arrêté, mise à jour du mixage audio.`);
+                const remainingStreams = currentBroadcast.streamNames.filter(name => name !== streamName && activeStreams[name]);
+                broadcastStreams(remainingStreams);
+            }
         }
         updateBotStatus();
     });
@@ -207,7 +214,14 @@ async function start() {
 
     // Endpoint public pour la page spectateur
     app.get('/api/public/streams', (req, res) => {
-        res.json(activeStreams);
+        const broadcastedAndActiveStreams = {};
+        currentBroadcast.streamNames.forEach(name => {
+            // Inclure uniquement si le stream est actif sur le serveur RTMP ET dans la liste de diffusion du bot
+            if (activeStreams[name]) {
+                broadcastedAndActiveStreams[name] = activeStreams[name];
+            }
+        });
+        res.json(broadcastedAndActiveStreams);
     });
 
     // Création du middleware d'authentification pour l'admin
@@ -215,6 +229,11 @@ async function start() {
         users: { 'admin': config.dashboard.password },
         challenge: true,
         realm: 'Dashboard de Stream',
+    });
+
+    // La page d'accueil est la visionneuse publique
+    app.get('/', (req, res) => {
+        res.sendFile(__dirname + '/public/viewer.html');
     });
 
     // Route pour la page d'administration, protégée par mot de passe
@@ -253,12 +272,6 @@ async function start() {
 
 
     // Servir les fichiers statiques (index.html, viewer.html)
-    app.use(express.static('public'));
-
-    // La page d'accueil est maintenant la visionneuse publique
-    app.get('/', (req, res) => {
-        res.sendFile(__dirname + '/public/viewer.html');
-    });
 
     // Fonction interne pour gérer la diffusion
     async function broadcastStreams(streamNames) {
@@ -501,6 +514,9 @@ async function start() {
     app.get('/api/active-streams', (req, res) => {
         res.json(activeStreams);
     });
+
+    // Servir les fichiers statiques (CSS, JS côté client, etc.) DOIT être après les routes spécifiques comme /admin
+    app.use(express.static('public'));
 
     // --- 5. DÉMARRAGE DE TOUS LES SERVEURS ---
     app.listen(config.dashboard.port, () => {
